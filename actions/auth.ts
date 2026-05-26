@@ -9,12 +9,14 @@ export async function signUp(formData: FormData) {
   const fullName = String(formData.get("full_name") ?? "");
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: { data: { full_name: fullName } },
   });
   if (error) redirect("/signup?error=" + encodeURIComponent(error.message));
+  // No session means Supabase email confirmation is enabled — user must verify first.
+  if (!data.session) redirect("/signup?check-email=1");
   redirect("/onboarding");
 }
 
