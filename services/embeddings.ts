@@ -1,5 +1,5 @@
 import { gemini } from "@/lib/gemini";
-import { env } from "@/lib/env";
+import { env, EMBED_DIM } from "@/lib/env";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -8,6 +8,8 @@ async function embedBatch(texts: string[], attempt = 0): Promise<number[][]> {
     const res = await gemini().models.embedContent({
       model: env.geminiEmbedModel(),
       contents: texts,
+      // gemini-embedding-001 defaults to 3072 dims; pin to our vector(768) column.
+      config: { outputDimensionality: EMBED_DIM },
     });
     return (res.embeddings ?? []).map((e) => e.values as number[]);
   } catch (err) {

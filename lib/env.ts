@@ -10,7 +10,7 @@ export const env = {
   supabaseServiceRoleKey: () => required("SUPABASE_SERVICE_ROLE_KEY"),
   geminiApiKey: () => required("GEMINI_API_KEY"),
   geminiModel: () => process.env.GEMINI_MODEL ?? "gemini-3.5-flash",
-  geminiEmbedModel: () => process.env.GEMINI_EMBED_MODEL ?? "text-embedding-004",
+  geminiEmbedModel: () => process.env.GEMINI_EMBED_MODEL ?? "gemini-embedding-001",
 };
 
 export const EMBED_DIM = 768;
