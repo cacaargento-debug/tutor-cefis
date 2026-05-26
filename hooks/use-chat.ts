@@ -13,29 +13,46 @@ export function useChat() {
     setMessages([...next, { role: "assistant", content: "" }]);
     setStreaming(true);
 
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, messages: next }),
-    });
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, messages: next }),
+      });
 
-    const sid = res.headers.get("x-session-id") ?? undefined;
-    if (sid) setSessionId(sid);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `HTTP ${res.status}`);
+      }
 
-    const reader = res.body?.getReader();
-    const decoder = new TextDecoder();
-    let acc = "";
-    while (reader) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      acc += decoder.decode(value, { stream: true });
+      const sid = res.headers.get("x-session-id") ?? undefined;
+      if (sid) setSessionId(sid);
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setMessages((m) => {
+          const copy = [...m];
+          copy[copy.length - 1] = { role: "assistant", content: acc };
+          return copy;
+        });
+      }
+    } catch {
       setMessages((m) => {
         const copy = [...m];
-        copy[copy.length - 1] = { role: "assistant", content: acc };
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: "Erro ao processar resposta. Tente novamente.",
+        };
         return copy;
       });
+    } finally {
+      setStreaming(false);
     }
-    setStreaming(false);
   }
 
   return { messages, send, streaming };
