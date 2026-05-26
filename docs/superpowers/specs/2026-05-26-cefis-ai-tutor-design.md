@@ -41,7 +41,7 @@ No other educational areas in this MVP.
 | Database | Supabase Postgres |
 | Auth | Supabase Auth (email/password) |
 | Vector search | pgvector (Supabase) |
-| LLM | Google Gemini Flash via `@google/genai` |
+| LLM | Google Gemini Flash (`gemini-3.5-flash`) via `@google/genai` |
 | Embeddings | Gemini `text-embedding-004` (768-dim) |
 | Deploy | Docker + Easypanel, hosted Supabase |
 
@@ -99,14 +99,23 @@ Next.js Fullstack App
 
 ## 6. Data model (Supabase)
 
-All tables have **RLS enabled**; users can only read/write their own rows
-(except seed/content tables). `pgvector` extension enabled.
+`pgvector` extension enabled. RLS rules:
+
+- **Per-user tables** (`profiles`, `learning_profiles`, `cefis_connections`,
+  `roadmaps`, `chat_sessions`, `chat_messages`): RLS enabled; a user can only
+  read/write rows where the row's `user_id` = `auth.uid()`.
+- **Shared content tables** (`documents`, `document_chunks`, `practical_cases`):
+  RLS enabled with a policy allowing **any authenticated user to `SELECT`**.
+  Writes happen only server-side via the service-role key (ingest script / seeds),
+  which bypasses RLS. This is required so RAG retrieval returns rows — without an
+  explicit SELECT policy, RLS silently returns zero chunks and the tutor answers
+  with no context.
 
 | Table | Key columns | Notes |
 |---|---|---|
 | `profiles` | `id` (= auth.users.id), `full_name`, `created_at` | 1:1 with auth user |
 | `learning_profiles` | `user_id`, `goal`, `level`, `study_time`, `learning_style` | onboarding result |
-| `cefis_connections` | `user_id`, `encrypted_token`, `status`, `connected_at` | CEFIS link |
+| `cefis_connections` | `user_id`, `status`, `account_label`, `connected_at` | CEFIS link — **no secret stored in MVP** (see §11) |
 | `roadmaps` | `user_id`, `area`, `level`, `weeks` (jsonb) | phase-2 content |
 | `chat_sessions` | `id`, `user_id`, `title`, `created_at` | one per conversation |
 | `chat_messages` | `id`, `session_id`, `role`, `content`, `created_at` | chat history |
@@ -115,7 +124,9 @@ All tables have **RLS enabled**; users can only read/write their own rows
 | `document_chunks` | `id`, `document_id`, `content`, `embedding vector(768)`, `metadata` | RAG store |
 
 **RAG SQL function:** `match_document_chunks(query_embedding, match_count, similarity_threshold)`
-returns top-k chunks by cosine similarity, used by the chat API.
+returns top-k chunks by cosine similarity, used by the chat API. Declared
+`SECURITY DEFINER` (in addition to the SELECT policy above) so retrieval is never
+blocked by RLS regardless of which client calls it.
 
 ## 7. Onboarding
 
@@ -181,6 +192,12 @@ the tutor prompt. No reranking, no multi-hop — kept minimal by design.
 Mock implementation returns realistic sample data now. Real API (base URL + auth +
 endpoints, user-provided) swapped behind the same interface via env config later.
 
+**Connection storage:** the MVP does **not** persist any CEFIS secret/token. The
+"connect" step records only `status` + a non-secret `account_label` in
+`cefis_connections`. When the real API arrives we choose a proper secret store
+(e.g. Supabase Vault / pgsodium) rather than a column casually labelled
+"encrypted" — avoiding a false-security claim in the meantime.
+
 ## 12. Practical cases (phase 2)
 
 Seeded mini fiscal cases (e.g. *"A company received interstate goods and the CST was
@@ -207,7 +224,7 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 GEMINI_API_KEY=
-GEMINI_MODEL=               # Flash model you have access to (e.g. gemini-2.5-flash)
+GEMINI_MODEL=gemini-3.5-flash
 GEMINI_EMBED_MODEL=text-embedding-004
 CEFIS_API_BASE_URL=         # mock/placeholder until real API provided
 CEFIS_API_KEY=
