@@ -10,9 +10,10 @@ async function setStatus(status: "connected" | "skipped", label: string | null) 
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  await supabase
+  const { error: upsertErr } = await supabase
     .from("cefis_connections")
     .upsert({ user_id: user.id, status, account_label: label });
+  if (upsertErr) console.error("cefis_connections upsert failed:", upsertErr);
   redirect("/dashboard");
 }
 
