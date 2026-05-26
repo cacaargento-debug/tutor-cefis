@@ -38,7 +38,10 @@ export async function POST(req: Request) {
   }
 
   // Persist the user message BEFORE streaming.
-  await supabase.from("chat_messages").insert({ session_id: sid, role: "user", content: lastUser.content });
+  const { error: userMsgError } = await supabase
+    .from("chat_messages")
+    .insert({ session_id: sid, role: "user", content: lastUser.content });
+  if (userMsgError) return new Response(userMsgError.message, { status: 500 });
 
   const { data: profileRow } = await supabase
     .from("learning_profiles")
@@ -66,6 +69,7 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      let errored = false;
       try {
         for await (const chunk of geminiStream) {
           const text = chunk.text ?? "";
@@ -75,13 +79,20 @@ export async function POST(req: Request) {
           }
         }
       } catch (err) {
+        errored = true;
         controller.error(err);
       } finally {
         // Persist assistant reply even if the client disconnected.
         if (full) {
-          await supabase.from("chat_messages").insert({ session_id: sid, role: "assistant", content: full });
+          const { error: assistantMsgError } = await supabase
+            .from("chat_messages")
+            .insert({ session_id: sid, role: "assistant", content: full });
+          if (assistantMsgError) {
+            console.error("Failed to persist assistant message:", assistantMsgError.message);
+          }
         }
-        controller.close();
+        // Stream is already errored on the failure path; only close on success.
+        if (!errored) controller.close();
       }
     },
   });
