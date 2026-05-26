@@ -32,6 +32,7 @@ export async function embedTexts(texts: string[], batchSize = 20): Promise<numbe
 }
 
 export async function embedQuery(text: string): Promise<number[]> {
+  if (!text.trim()) throw new Error("embedQuery: text must not be empty");
   const [vec] = await embedBatch([text]);
   return vec;
 }
