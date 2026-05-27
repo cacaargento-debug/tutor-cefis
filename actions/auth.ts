@@ -3,6 +3,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
+// Normalize Supabase errors to prevent account enumeration via error messages.
+function signupErrorMessage(msg: string): string {
+  if (/already registered|already exists|email.*taken/i.test(msg)) {
+    return "E-mail já cadastrado. Faça login ou redefina sua senha.";
+  }
+  return "Erro ao criar conta. Tente novamente.";
+}
+
 export async function signUp(formData: FormData) {
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
@@ -14,7 +22,7 @@ export async function signUp(formData: FormData) {
     password,
     options: { data: { full_name: fullName } },
   });
-  if (error) redirect("/signup?error=" + encodeURIComponent(error.message));
+  if (error) redirect("/signup?error=" + encodeURIComponent(signupErrorMessage(error.message)));
   // No session means Supabase email confirmation is enabled — user must verify first.
   if (!data.session) redirect("/signup?check-email=1");
   redirect("/onboarding");
