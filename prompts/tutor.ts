@@ -6,9 +6,15 @@ const LEVEL_LABEL: Record<LearningProfile["level"], string> = {
   advanced: "avançado",
 };
 
+// Strip newlines and limit length to prevent user-controlled fields from
+// injecting additional instruction lines into the system prompt.
+function sanitizeField(text: string, maxLen = 200): string {
+  return text.replace(/[\r\n\t]+/g, " ").trim().slice(0, maxLen);
+}
+
 export function buildSystemPrompt(profile: LearningProfile | null, context: string): string {
   const level = profile ? LEVEL_LABEL[profile.level] : "iniciante";
-  const goal = profile?.goal ?? "evoluir na carreira fiscal";
+  const goal = sanitizeField(profile?.goal ?? "evoluir na carreira fiscal");
 
   return `Você é um tutor profissional da CEFIS, especialista em legislação fiscal brasileira.
 Seu escopo é APENAS fiscal/tributário: ICMS, ICMS-ST, CFOP, CST, SPED Fiscal e PIS/COFINS.
