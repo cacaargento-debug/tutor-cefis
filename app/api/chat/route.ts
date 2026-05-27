@@ -8,6 +8,22 @@ import type { ChatMessage, LearningProfile } from "@/types";
 
 export const runtime = "nodejs";
 
+// In-memory rate limiter: 20 requests per user per minute.
+// Works for single-instance deploys (Easypanel). For multi-instance, replace with Redis/Upstash.
+const rateLimitMap = new Map<string, number[]>();
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 20;
+
+function isRateLimited(userId: string): boolean {
+  const now = Date.now();
+  const timestamps = (rateLimitMap.get(userId) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (timestamps.length >= RATE_MAX) return true;
+  rateLimitMap.set(userId, [...timestamps, now]);
+  return false;
+}
+
+const MAX_BODY_BYTES = 64 * 1024; // 64 KB
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const {
@@ -15,14 +31,30 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
+  if (isRateLimited(user.id)) {
+    return new Response("Too Many Requests", { status: 429 });
+  }
+
+  const contentLength = parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (contentLength > MAX_BODY_BYTES) {
+    return new Response("Payload Too Large", { status: 413 });
+  }
+
   const { sessionId, messages } = (await req.json()) as {
     sessionId?: string;
     messages: ChatMessage[];
   };
-  const history = windowHistory(messages, 10);
-  const lastUser = history[history.length - 1];
+
+  // Extract only the latest user message from the client — never trust prior history from client.
+  const clientMessages = windowHistory(messages, 10);
+  const lastUser = clientMessages[clientMessages.length - 1];
   if (!lastUser || lastUser.role !== "user") {
     return new Response("Bad Request", { status: 400 });
+  }
+
+  // Enforce per-message size limit to prevent RAG/embedding DoS.
+  if (lastUser.content.length > 4000) {
+    return new Response("Message Too Long", { status: 413 });
   }
 
   // Ensure a chat session exists (created lazily on first message).
@@ -52,6 +84,20 @@ export async function POST(req: Request) {
 
   const chunks = await retrieveContext(lastUser.content);
   const systemPrompt = buildSystemPrompt(profile, formatContext(chunks));
+
+  // Fetch verified history from DB (ignore client-supplied history to prevent poisoning).
+  // RLS ensures only this user's messages are returned.
+  const { data: dbHistory } = await supabase
+    .from("chat_messages")
+    .select("role, content")
+    .eq("session_id", sid)
+    .order("created_at", { ascending: true })
+    .limit(10);
+
+  const history: ChatMessage[] = (dbHistory ?? []).map((m) => ({
+    role: m.role as ChatMessage["role"],
+    content: m.content as string,
+  }));
 
   const contents = history.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
